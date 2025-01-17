@@ -1,43 +1,61 @@
-# LightGCL-ReChorus
-### SYSU 人工智能学院 机器学习实验大作业
+# Source Code
 
-#### 项目介绍
-- 以推荐系统为背景，采用[ReChorus2.0框架](https://github.com/THUwangcy/ReChorus)，复现[LightGCL模型](https://github.com/HKUDS/LightGCL)并改进然后进行一系列对比实验
----
+`main.py` serves as the entrance of our framework, and there are three main packages. 
 
-#### 代码位置
-- `src/general/LightGCL.py`：LightGCL模型
-- `src/general/LightGCN_neighbor.py`：LightGCL改进模型
+### Structure
 
-#### 模型运行
-```bash
-pip install -r requirements.txt
-python main.py --model_name LightGCL
+- `helpers\`
+  - `BaseReader.py`: read dataset csv into DataFrame and append necessary information (e.g. interaction history)
+  - `ContextReader.py`: inherited from BaseReader, read user&item metadata, and count statistics about all context features
+  - `ContextSeqReader.py`: inherited from ContextReader, append interaction history with situation context features.
+  - `ImpressionReader.py`: inherited from BaseReader, group interactions with the same impression id into an instance. 
+  - `BaseRunner.py`: control the training and evaluation process of a model
+  - `CTRRunner.py`: inherited from BaseRunner, train and evaluate a model with binary label. (Click-through-rate Predition task)
+  - `ImpressionRunner.py`: inherited from BaseRunner, train and evaluate a model with impression-based logs (Variable lengths of positive and negative items in a list).
+  - `...`: customize helpers with specific functions
+- `models\`
+  - `BaseModel.py`: basic model classes and dataset classes, with some common functions of a model
+  - `BaseContextModel.py`: inherited from BaseModel, add context features for base model
+  - `BaseImpressionModel.py`: inherited from BaseModel, construct data batch in impressions
+  - `...`: customize models inherited from classes in *BaseModel*
+- `utils\`
+  - `layers.py`: common modules for model definition (e.g. attention and MLP blocks)
+  - `utils.py`: some utils functions
+- `main.py`: main entrance, connect all the modules
+- `exp.py`: repeat experiments in *run.sh* and save averaged results to csv 
+
+### Define a New Model
+
+Generally we can define a new class inheriting *GeneralModel* (a subclass of *BaseModel*), as well as the inner class *Dataset*. The following functions need to be implement at least:
+
+```python
+class NewModel(GeneralModel):
+    reader = 'BaseReader'  # assign a reader class, BaseReader by default
+    runner = 'BaseRunner'  # assign a runner class, BaseRunner by default
+
+    def __init__(self, args, corpus):
+        super().__init__(args, corpus)
+        self._define_params()
+        self.apply(self.init_weights)
+
+    def _define_params(self):
+        # define parameters in the model
+
+    def forward(self, feed_dict):
+        # generate prediction (ranking score according to tensors in feed_dict)
+        item_id = feed_dict['item_id']  # [batch_size, -1]
+        user_id = feed_dict['user_id']  # [batch_size]
+        prediction = (...)
+        out_dict = {'prediction': prediction.view(feed_dict['batch_size'], -1)}
+        return out_dict
+
+    class Dataset(GeneralModel.Dataset):
+        # construct feed_dict for a single instance (called by __getitem__)
+        # will be collated to a integrated feed dict for each batch
+        def _get_feed_dict(self, index):
+            feed_dict = super()._get_feed_dict(index)
+            (...)
+            return feed_dict
 ```
 
-
-#### 实验结果
-- 在[Grocery_and_Gourmet_Food](https://www.kaggle.com/datasets/shuyangli94/food-com-recipes-and-user-interactions)数据集上进行实验，实验结果如下：
-
-![results](./results/Grocery_and_Gourmet_Food.png)
-| 模型 | HR@20/Grocery | NDCG@20/Grocery | Times/Grocery | HR@5/Grocery | NDCG@5/Grocery | Times/Grocery |
-|------|---------------|-----------------|---------------|--------------|----------------|---------------|
-| LightGCL | 0.5874 | 0.3097 | 216.2 | 0.3507 | 0.2410 | 217.8 |
-| BPRMF | 0.5267 | 0.2762 | 72.6s | 0.3159 | 0.2172 | 158.3 |
-| LightGCN | 0.6109 | 0.3260 | 221.8 s | 0.3699 | 0.2567 | 161.7 |
-| LightGCL-Neighbor | 0.6111 | 0.3280 | 159.5 s | 0.3754 | 0.2594 | 157.4 |
-| LIghtGCL-Neighbor-r=2 | 0.6109 | 0.3264 | 152.6 | 0.3711 | 0.2565 | 153.4 |
----
-- 在[MovieLens-1M](https://grouplens.org/datasets/movielens/1m/)数据集上进行实验，实验结果如下：
-
-| 模型 | HR@20/ML1M | NDCG@20/ML1M | Times/ML1M | HR@5/ML1M | NDCG@5/ML1M | Times/ML1M |
-|------|------------|--------------|------------|-----------|-------------|------------|
-| LightGCL | 0.7178 | 0.3420 | 2530.2 s | 0.3605 | 0.2404 | 2710.8 s |
-| BPRMF | 0.7467 | 0.3599 | 207.1 s | 0.3779 | 0.2549 | 228.5 s |
-| LightGCN | 0.7255 | 0.3555 | 1295.3 s | 0.3744 | 0.2523 | 1622.4 s |
-| LightGCL-Neighbor | 0.6781 | 0.3241 | 1495.5 s | 0.3424 | 0.2283 | 1685.1 s |
-| LightGCL-Neighbor-r=2 | 0.6945 | 0.3381 | 969.4 s | 0.3577 | 0.2421 | 1135.0 s |
-
-
-![results](./results/MovieLens-1M.png)
-
+If the model definition is more complicated, you can inherit other functions in *BaseModel* (e.g. `loss`, `customize_parameters`) and *Dataset* (e.g. `_prepare`, `actions_before_epoch`), which needs deeper understandings about [BaseModel.py](https://github.com/THUwangcy/ReChorus/tree/master/src/models/BaseModel.py) and [BaseRunner.py](https://github.com/THUwangcy/ReChorus/tree/master/src/helpers/BaseRunner.py). You can also implement a new runner class to accommodate different experimental settings.
